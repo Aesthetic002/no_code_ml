@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NoCode ML - Admin Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 min-h-screen text-gray-100">
+    <!-- Navigation -->
+    <nav class="bg-slate-800/50 backdrop-blur border-b border-slate-700">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <i class="fas fa-crown text-2xl text-yellow-400"></i>
+                <h1 class="text-2xl font-bold text-purple-300">Admin Panel</h1>
+            </div>
+            <div class="flex gap-4">
+                <button onclick="window.location.href='/frontend/dashboard.html'" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg">
+                    <i class="fas fa-arrow-left mr-2"></i>Dashboard
+                </button>
+                <button onclick="logout()" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg">
+                    <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto p-8">
+        <!-- Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-blue-500/10 border border-blue-500/50 rounded-xl p-6">
+                <p class="text-gray-400 text-sm mb-2">Total Users</p>
+                <p id="totalUsers" class="text-4xl font-bold text-blue-300">-</p>
+            </div>
+            <div class="bg-purple-500/10 border border-purple-500/50 rounded-xl p-6">
+                <p class="text-gray-400 text-sm mb-2">Total Models</p>
+                <p id="totalModels" class="text-4xl font-bold text-purple-300">-</p>
+            </div>
+            <div class="bg-emerald-500/10 border border-emerald-500/50 rounded-xl p-6">
+                <p class="text-gray-400 text-sm mb-2">Active Users</p>
+                <p id="activeUsers" class="text-4xl font-bold text-emerald-300">-</p>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex gap-4 mb-6">
+            <button onclick="switchTab('dashboard')" id="dashboardTab" class="px-6 py-2 bg-purple-600 text-white rounded-lg font-semibold">
+                <i class="fas fa-chart-line mr-2"></i>Dashboard
+            </button>
+            <button onclick="switchTab('users')" id="usersTab" class="px-6 py-2 bg-slate-700 text-gray-300 rounded-lg font-semibold">
+                <i class="fas fa-users mr-2"></i>Users
+            </button>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboardContent" class="bg-gradient-to-br from-slate-800 to-slate-700 rounded-xl p-6 border border-slate-600">
+            <h2 class="text-xl font-bold text-purple-300 mb-4">Recent Models</h2>
+            <div id="recentModels" class="space-y-3">
+                <p class="text-gray-400">Loading...</p>
+            </div>
+        </div>
+
+        <!-- Users Tab -->
+        <div id="usersContent" class="hidden bg-gradient-to-br from-slate-800 to-slate-700 rounded-xl p-6 border border-slate-600">
+            <h2 class="text-xl font-bold text-blue-300 mb-4">User Management</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="border-b border-slate-600">
+                        <tr>
+                            <th class="text-left py-3 px-4">Username</th>
+                            <th class="text-left py-3 px-4">Email</th>
+                            <th class="text-left py-3 px-4">Admin</th>
+                            <th class="text-left py-3 px-4">Created</th>
+                            <th class="text-left py-3 px-4">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersList" class="divide-y divide-slate-700">
+                        <tr><td colspan="5" class="text-center py-4 text-gray-400">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let token = localStorage.getItem('token');
+
+        window.addEventListener('load', () => {
+            if (!token) window.location.href = '/auth.html';
+            loadDashboard();
+        });
+
+        async function loadDashboard() {
+            const res = await fetch('http://127.0.0.1:9000/api/admin/dashboard', 
+                { headers: { 'Authorization': `Bearer ${token}` } });
+            const data = await res.json();
+            
+            document.getElementById('totalUsers').textContent = data.total_users;
+            document.getElementById('totalModels').textContent = data.total_models;
+            
+            let html = '';
+            data.recent_models.forEach(m => {
+                html += `<div class="bg-slate-900/50 p-3 rounded border border-slate-600">
+                    <p class="font-semibold text-gray-200">${m.model_name}</p>
+                    <p class="text-sm text-gray-400">User: ${m.username} | Type: ${m.model_type}</p>
+                    <p class="text-xs text-gray-500">${new Date(m.created_at).toLocaleDateString()}</p>
+                </div>`;
+            });
+            document.getElementById('recentModels').innerHTML = html;
+            
+            loadUsers();
+        }
+
+        async function loadUsers() {
+            const res = await fetch('http://127.0.0.1:9000/api/admin/users', 
+                { headers: { 'Authorization': `Bearer ${token}` } });
+            const data = await res.json();
+            
+            let html = '';
+            data.users.forEach(u => {
+                html += `<tr>
+                    <td class="py-3 px-4 text-blue-300">${u.username}</td>
+                    <td class="py-3 px-4 text-gray-400">${u.email}</td>
+                    <td class="py-3 px-4">
+                        <button onclick="toggleAdmin(${u.id})" class="px-3 py-1 ${u.is_admin ? 'bg-yellow-600' : 'bg-slate-600'} hover:opacity-80 rounded text-xs">
+                            ${u.is_admin ? '✓ Admin' : 'User'}
+                        </button>
+                    </td>
+                    <td class="py-3 px-4 text-gray-500 text-xs">${new Date(u.created_at).toLocaleDateString()}</td>
+                    <td class="py-3 px-4">
+                        <button onclick="deleteUser(${u.id})" class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs">
+                            Delete
+                        </button>
+                    </td>
+                </tr>`;
+            });
+            document.getElementById('usersList').innerHTML = html;
+        }
+
+        function switchTab(tab) {
+            document.getElementById('dashboardContent').classList.toggle('hidden', tab === 'users');
+            document.getElementById('usersContent').classList.toggle('hidden', tab === 'dashboard');
+            document.getElementById('dashboardTab').classList.toggle('bg-slate-700', tab === 'users');
+            document.getElementById('dashboardTab').classList.toggle('bg-purple-600', tab === 'dashboard');
+            document.getElementById('usersTab').classList.toggle('bg-slate-700', tab === 'dashboard');
+            document.getElementById('usersTab').classList.toggle('bg-blue-600', tab === 'users');
+        }
+
+        async function toggleAdmin(userId) {
+            if (!confirm('Toggle admin status?')) return;
+            const res = await fetch(`http://127.0.0.1:9000/api/admin/users/${userId}/toggle-admin`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) loadUsers();
+        }
+
+        async function deleteUser(userId) {
+            if (!confirm('Delete this user and all their models?')) return;
+            const res = await fetch(`http://127.0.0.1:9000/api/admin/users/${userId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) loadUsers();
+        }
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = '/frontend/auth.html';
+        }
+    </script>
+</body>
+</html>

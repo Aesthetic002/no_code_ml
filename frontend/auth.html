@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NoCode ML - Authentication</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 min-h-screen text-gray-100 flex items-center justify-center p-4">
+    <div class="w-full max-w-md">
+        <!-- Logo -->
+        <div class="text-center mb-8">
+            <div class="flex items-center justify-center gap-3 mb-4">
+                <i class="fas fa-brain text-4xl bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent"></i>
+                <h1 class="text-4xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">NoCode ML</h1>
+            </div>
+        </div>
+
+        <!-- Auth Container -->
+        <div class="bg-gradient-to-br from-slate-800 to-slate-700 rounded-2xl p-8 border border-slate-600 shadow-2xl">
+            
+            <!-- Login Form -->
+            <div id="loginForm">
+                <h2 class="text-2xl font-bold text-blue-300 mb-6 text-center">Welcome Back</h2>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-gray-300 font-semibold mb-2">Username</label>
+                        <input type="text" id="loginUsername" placeholder="Enter your username" class="w-full bg-slate-700 border border-blue-500/30 rounded-lg px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors">
+                    </div>
+
+                    <div>
+                        <label class="block text-gray-300 font-semibold mb-2">Password</label>
+                        <input type="password" id="loginPassword" placeholder="Enter your password" class="w-full bg-slate-700 border border-blue-500/30 rounded-lg px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors">
+                    </div>
+
+                    <button onclick="handleLogin()" class="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg mt-6">
+                        <i class="fas fa-sign-in-alt mr-2"></i>Login
+                    </button>
+                </div>
+
+                <p class="text-gray-400 text-center mt-6">Don't have an account? <button onclick="switchForm()" class="text-blue-400 hover:text-blue-300 font-semibold">Sign Up</button></p>
+            </div>
+
+            <!-- Signup Form -->
+            <div id="signupForm" class="hidden">
+                <h2 class="text-2xl font-bold text-emerald-300 mb-6 text-center">Create Account</h2>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-gray-300 font-semibold mb-2">Username</label>
+                        <input type="text" id="signupUsername" placeholder="Choose a username" class="w-full bg-slate-700 border border-emerald-500/30 rounded-lg px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition-colors">
+                    </div>
+
+                    <div>
+                        <label class="block text-gray-300 font-semibold mb-2">Email</label>
+                        <input type="email" id="signupEmail" placeholder="Enter your email" class="w-full bg-slate-700 border border-emerald-500/30 rounded-lg px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition-colors">
+                    </div>
+
+                    <div>
+                        <label class="block text-gray-300 font-semibold mb-2">Password</label>
+                        <input type="password" id="signupPassword" placeholder="Create a password" class="w-full bg-slate-700 border border-emerald-500/30 rounded-lg px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition-colors">
+                    </div>
+
+                    <div>
+                        <label class="block text-gray-300 font-semibold mb-2">Confirm Password</label>
+                        <input type="password" id="signupPasswordConfirm" placeholder="Confirm your password" class="w-full bg-slate-700 border border-emerald-500/30 rounded-lg px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition-colors">
+                    </div>
+
+                    <button onclick="handleSignup()" class="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold py-3 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg mt-6">
+                        <i class="fas fa-user-plus mr-2"></i>Create Account
+                    </button>
+                </div>
+
+                <p class="text-gray-400 text-center mt-6">Already have an account? <button onclick="switchForm()" class="text-emerald-400 hover:text-emerald-300 font-semibold">Login</button></p>
+            </div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="hidden mt-6 bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-3 rounded-lg">
+                <i class="fas fa-exclamation-circle mr-2"></i>
+                <span id="errorText"></span>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div id="loadingSpinner" class="hidden flex items-center justify-center gap-2 text-blue-300 py-4 mt-6">
+                <i class="fas fa-spinner fa-spin text-2xl"></i>
+                <span>Processing...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchForm() {
+            document.getElementById('loginForm').classList.toggle('hidden');
+            document.getElementById('signupForm').classList.toggle('hidden');
+            hideError();
+        }
+
+        function showError(message) {
+            document.getElementById('errorText').textContent = message;
+            document.getElementById('errorMessage').classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('errorMessage').classList.add('hidden');
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingSpinner').classList.toggle('hidden', !show);
+        }
+
+        async function handleLogin() {
+            hideError();
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+
+            if (!username || !password) {
+                showError('Please fill in all fields');
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const response = await fetch('http://127.0.0.1:9000/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showError(data.detail || 'Login failed');
+                    return;
+                }
+
+                // Store token
+                localStorage.setItem('token', data.access_token);
+                localStorage.setItem('username', data.username);
+
+                // Redirect to dashboard
+                window.location.href = '/frontend/dashboard.html';
+            } catch (error) {
+                showError('Network error: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function handleSignup() {
+            hideError();
+            const username = document.getElementById('signupUsername').value;
+            const email = document.getElementById('signupEmail').value;
+            const password = document.getElementById('signupPassword').value;
+            const passwordConfirm = document.getElementById('signupPasswordConfirm').value;
+
+            if (!username || !email || !password || !passwordConfirm) {
+                showError('Please fill in all fields');
+                return;
+            }
+
+            if (password !== passwordConfirm) {
+                showError('Passwords do not match');
+                return;
+            }
+
+            if (password.length < 6) {
+                showError('Password must be at least 6 characters');
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const response = await fetch('http://127.0.0.1:9000/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showError(data.detail || 'Registration failed');
+                    return;
+                }
+
+                // Store token
+                localStorage.setItem('token', data.access_token);
+                localStorage.setItem('username', data.username);
+
+                // Redirect to dashboard
+                window.location.href = '/frontend/dashboard.html';
+            } catch (error) {
+                showError('Network error: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Check if already logged in
+        window.addEventListener('load', () => {
+            const token = localStorage.getItem('token');
+            if (token) {
+                window.location.href = '/frontend/dashboard.html';
+            }
+        });
+    </script>
+</body>
+</html>

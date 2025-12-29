@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NoCode ML</title>
+    <script>
+        // Check if user is logged in
+        const token = localStorage.getItem('token');
+        if (token) {
+            window.location.href = '/frontend/dashboard.html';
+        } else {
+            window.location.href = '/frontend/auth.html';
+        }
+    </script>
+</head>
+<body>
+    Loading...
+</body>
+</html>
+        <!-- Header -->
+        <div class="max-w-6xl mx-auto mb-12">
+            <div class="text-center mb-8">
+                <div class="flex items-center justify-center gap-3 mb-4">
+                    <i class="fas fa-brain text-5xl bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent"></i>
+                    <h1 class="text-5xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">NoCode ML</h1>
+                </div>
+                <p class="text-gray-400 text-lg">Train ML models without writing code</p>
+            </div>
+
+            <!-- Mode Selection -->
+            <div class="mb-8 flex justify-center gap-4">
+                <button onclick="switchMode('train')" id="modeTrainBtn" class="px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg transition-all duration-300 flex items-center gap-2 shadow-lg">
+                    <i class="fas fa-rocket"></i>Train New Model
+                </button>
+                <button onclick="switchMode('predict')" id="modePredictBtn" class="px-8 py-3 bg-slate-700 hover:bg-slate-600 text-gray-300 font-semibold rounded-lg transition-all duration-300 flex items-center gap-2 border border-slate-600">
+                    <i class="fas fa-crystal-ball"></i>Use Existing Model
+                </button>
+            </div>
+
+            <!-- Main Container -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- TRAINING MODE -->
+                <div id="trainMode" class="lg:col-span-3 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- Step 1: Upload & Analyze -->
+                <div class="lg:col-span-1 space-y-6">
+                    <div class="bg-gradient-to-br from-slate-800 to-slate-700 rounded-xl p-6 border border-slate-600 shadow-lg hover:shadow-xl transition-shadow">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="bg-blue-500/20 p-3 rounded-lg">
+                                <i class="fas fa-upload text-blue-400 text-xl"></i>
+                            </div>
+                            <h2 class="text-2xl font-bold text-blue-300">Upload Dataset</h2>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div class="relative">
+                                <input type="file" id="csvFile" accept=".csv" class="hidden" onchange="handleFileSelect()">
+                                <label for="csvFile" class="block cursor-pointer">
+                                    <div class="border-2 border-dashed border-blue-500/30 rounded-lg p-8 text-center hover:border-blue-500/60 transition-colors bg-blue-500/5">
+                                        <i class="fas fa-cloud-upload-alt text-4xl text-blue-400 mb-2 block"></i>
+                                        <p class="text-blue-300 font-semibold">Click to upload CSV</p>
+                                        <p class="text-gray-500 text-sm">or drag and drop</p>
+                                        <p id="fileName" class="text-green-400 text-sm font-semibold mt-2 hidden"></p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <button onclick="analyze()" class="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg flex items-center justify-center gap-2">
+                                <i class="fas fa-wand-magic-wand"></i>
+                                Analyze Dataset
+                            </button>
+
+                            <!-- Analysis Results -->
+                            <div id="analysisCard" class="hidden bg-slate-900/50 rounded-lg p-4 border border-blue-500/30">
+                                <h3 class="text-blue-300 font-semibold mb-3">Dataset Info</h3>
+                                <div id="analysis" class="space-y-2 text-gray-300 text-sm">
+                                    <!-- Auto-populated -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Model Detection -->
+                    <div id="detectionCard" class="hidden bg-gradient-to-br from-slate-800 to-slate-700 rounded-xl p-6 border border-slate-600 shadow-lg">
+                        <div class="flex items-center gap-3 mb-3">
+                            <i class="fas fa-lightbulb text-yellow-400 text-xl"></i>
+                            <h3 class="text-yellow-300 font-semibold">Detected Problem Type</h3>
+                        </div>
+                        <p id="detectionResult" class="text-gray-300"></p>
+                    </div>
+                </div>
+
+                <!-- Step 2: Training -->
+                <div class="lg:col-span-1">
+                    <div class="bg-gradient-to-br from-slate-800 to-slate-700 rounded-xl p-6 border border-slate-600 shadow-lg hover:shadow-xl transition-shadow h-full">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="bg-purple-500/20 p-3 rounded-lg">
+                                <i class="fas fa-dumbbell text-purple-400 text-xl"></i>
+                            </div>
+                            <h2 class="text-2xl font-bold text-purple-300">Train Model</h2>
+                        </div>
+
+                        <div class="space-y-4">
+                            <!-- Model Type Selection -->
+                            <div>
+                                <label class="block text-gray-300 font-semibold mb-2">
+                                    <i class="fas fa-list text-purple-400 mr-2"></i>Model Type
+                                </label>
+                                <select id="modelType" onchange="updateAutoType()" class="w-full bg-slate-700 border border-purple-500/30 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-purple-500 transition-colors">
+                                    <option value="">-- Auto Detect --</option>
+                                    <option value="regression">Regression</option>
+                                    <option value="classification">Classification</option>
+                                </select>
+                            </div>
+
+                            <!-- Model Name -->
+                            <div>
+                                <label class="block text-gray-300 font-semibold mb-2">
+                                    <i class="fas fa-signature text-purple-400 mr-2"></i>Model Name
+                                </label>
+                                <input type="text" id="modelName" placeholder="e.g. sales_predictor" class="w-full bg-slate-700 border border-purple-500/30 rounded-lg px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-purple-500 transition-colors">
+                            </div>
+
+                            <!-- Train Button -->
+                            <button onclick="train()" class="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white font-semibold py-3 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 mt-6">
+                                <i class="fas fa-rocket"></i>
+                                Train Model
+                            </button>
+
+                            <!-- Training Results -->
+                            <div id="trainResultCard" class="hidden bg-slate-900/50 rounded-lg p-4 border border-purple-500/30 mt-6">
+                                <h3 class="text-purple-300 font-semibold mb-3 flex items-center gap-2">
+                                    <i class="fas fa-check-circle text-green-400"></i>Training Complete
+                                </h3>
+                                <div id="trainResult" class="space-y-2 text-gray-300 text-sm font-mono bg-black/30 p-3 rounded max-h-64 overflow-y-auto">
+                                    <!-- Auto-populated -->
+                                </div>
+                            </div>
+
+                            <!-- Loading Indicator -->
+                            <div id="trainLoading" class="hidden flex items-center justify-center gap-2 text-purple-300 py-4">
+                                <i class="fas fa-spinner fa-spin text-2xl"></i>
+                                <span>Training model...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Quick Prediction (Training Mode) -->
+                <div class="lg:col-span-1">
+                    <div class="bg-gradient-to-br from-slate-800 to-slate-700 rounded-xl p-6 border border-slate-600 shadow-lg hover:shadow-xl transition-shadow h-full">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="bg-emerald-500/20 p-3 rounded-lg">
+                                <i class="fas fa-bolt text-emerald-400 text-xl"></i>
+                            </div>
+                            <h2 class="text-2xl font-bold text-emerald-300">Quick Test</h2>
+                        </div>
+
+                        <div class="space-y-4">
+                            <!-- Feature Inputs for Quick Test -->
+                            <div id="quickInputsContainer" class="hidden">
+                                <label class="block text-gray-300 font-semibold mb-3">
+                                    <i class="fas fa-sliders text-emerald-400 mr-2"></i>Feature Values
+                                </label>
+                                <div id="quickInputs" class="space-y-2 bg-slate-900/30 p-4 rounded-lg border border-emerald-500/20">
+                                    <!-- Auto-populated -->
+                                </div>
+                            </div>
+
+                            <!-- Quick Predict Button -->
+                            <button id="quickPredictBtn" onclick="quickPredict()" disabled class="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg flex items-center justify-center gap-2">
+                                <i class="fas fa-zap"></i>
+                                Quick Predict
+                            </button>
+
+                            <!-- Quick Prediction Results -->
+                            <div id="quickResultCard" class="hidden bg-gradient-to-br from-emerald-500/10 to-cyan-500/10 rounded-lg p-4 border border-emerald-500/50 mt-6">
+                                <h3 class="text-emerald-300 font-semibold mb-3 flex items-center gap-2">
+                                    <i class="fas fa-check text-emerald-400"></i>Result
+                                </h3>
+                                <div id="quickResult" class="bg-black/40 p-4 rounded text-gray-200 font-mono text-sm">
+                                    <!-- Auto-populated -->
+                                </div>
+                            </div>
+
+                            <!-- Loading Indicator -->
+                            <div id="quickLoading" class="hidden flex items-center justify-center gap-2 text-emerald-300 py-4">
+                                <i class="fas fa-spinner fa-spin text-2xl"></i>
+                                <span>Predicting...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                </div>
+
+                <!-- PREDICTION MODE -->
+                <div id="predictMode" class="hidden lg:col-span-3 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    
+                    <!-- Model Selection -->
+                    <div class="bg-gradient-to-br from-slate-800 to-slate-700 rounded-xl p-6 border border-slate-600 shadow-lg hover:shadow-xl transition-shadow">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="bg-blue-500/20 p-3 rounded-lg">
+                                <i class="fas fa-folder-open text-blue-400 text-xl"></i>
+                            </div>
+                            <h2 class="text-2xl font-bold text-blue-300">Select Model</h2>
+                        </div>
+
+                        <div class="space-y-4">
+                            <!-- Model Type Selection -->
+                            <div>
+                                <label class="block text-gray-300 font-semibold mb-2">
+                                    <i class="fas fa-list text-blue-400 mr-2"></i>Problem Type
+                                </label>
+                                <select id="predModelType" onchange="loadPredictModels()" class="w-full bg-slate-700 border border-blue-500/30 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-blue-500 transition-colors">
+                                    <option value="regression">Regression</option>
+                                    <option value="classification">Classification</option>
+                                </select>
+                            </div>
+
+                            <!-- Model List -->
+                            <div>
+                                <label class="block text-gray-300 font-semibold mb-2">
+                                    <i class="fas fa-database text-blue-400 mr-2"></i>Available Models
+                                </label>
+                                <select id="predModelList" onchange="loadPredictFeatures()" class="w-full bg-slate-700 border border-blue-500/30 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-blue-500 transition-colors">
+                                    <option>Select a model...</option>
+                                </select>
+                            </div>
+
+                            <!-- Model Info -->
+                            <div id="modelInfoCard" class="hidden bg-slate-900/50 rounded-lg p-4 border border-blue-500/30">
+                                <h3 class="text-blue-300 font-semibold mb-3">Model Information</h3>
+                                <div id="modelInfo" class="space-y-2 text-gray-300 text-sm">
+                                    <!-- Auto-populated -->
+                                </div>
+                            </div>
+
+                            <!-- Loading Indicator -->
+                            <div id="modelsLoading" class="hidden flex items-center justify-center gap-2 text-blue-300 py-4">
+                                <i class="fas fa-spinner fa-spin text-2xl"></i>
+                                <span>Loading models...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Prediction -->
+                    <div class="bg-gradient-to-br from-slate-800 to-slate-700 rounded-xl p-6 border border-slate-600 shadow-lg hover:shadow-xl transition-shadow">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="bg-emerald-500/20 p-3 rounded-lg">
+                                <i class="fas fa-crystal-ball text-emerald-400 text-xl"></i>
+                            </div>
+                            <h2 class="text-2xl font-bold text-emerald-300">Make Prediction</h2>
+                        </div>
+
+                        <div class="space-y-4">
+                            <!-- Feature Inputs -->
+                            <div id="predInputsContainer" class="hidden">
+                                <label class="block text-gray-300 font-semibold mb-3">
+                                    <i class="fas fa-sliders text-emerald-400 mr-2"></i>Enter Feature Values
+                                </label>
+                                <div id="predInputs" class="space-y-2 bg-slate-900/30 p-4 rounded-lg border border-emerald-500/20 max-h-96 overflow-y-auto">
+                                    <!-- Auto-populated -->
+                                </div>
+                            </div>
+
+                            <!-- Predict Button -->
+                            <button id="predPredictBtn" onclick="makePrediction()" disabled class="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg flex items-center justify-center gap-2">
+                                <i class="fas fa-wand-magic-wand"></i>
+                                Make Prediction
+                            </button>
+
+                            <!-- Prediction Results -->
+                            <div id="predResultCard" class="hidden bg-gradient-to-br from-emerald-500/10 to-cyan-500/10 rounded-lg p-4 border border-emerald-500/50 mt-6">
+                                <h3 class="text-emerald-300 font-semibold mb-3 flex items-center gap-2">
+                                    <i class="fas fa-bullseye text-emerald-400"></i>Prediction Result
+                                </h3>
+                                <div id="predResult" class="bg-black/40 p-4 rounded text-gray-200 font-mono text-sm max-h-48 overflow-y-auto">
+                                    <!-- Auto-populated -->
+                                </div>
+                            </div>
+
+                            <!-- Loading Indicator -->
+                            <div id="predLoading" class="hidden flex items-center justify-center gap-2 text-emerald-300 py-4">
+                                <i class="fas fa-spinner fa-spin text-2xl"></i>
+                                <span>Making prediction...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let features = [];
+        let uploadedFile = null;
+        let currentMode = 'train';
+        let trainedFeatures = [];
+
+        function switchMode(mode) {
+            currentMode = mode;
+            document.getElementById('trainMode').classList.toggle('hidden', mode === 'predict');
+            document.getElementById('predictMode').classList.toggle('hidden', mode === 'train');
+            
+            document.getElementById('modeTrainBtn').classList.toggle('bg-slate-700', mode === 'predict');
+            document.getElementById('modeTrainBtn').classList.toggle('bg-gradient-to-r', mode === 'train');
+            document.getElementById('modeTrainBtn').classList.toggle('from-blue-500', mode === 'train');
+            document.getElementById('modeTrainBtn').classList.toggle('to-blue-600', mode === 'train');
+            document.getElementById('modeTrainBtn').classList.toggle('text-gray-300', mode === 'predict');
+            document.getElementById('modeTrainBtn').classList.toggle('text-white', mode === 'train');
+            document.getElementById('modeTrainBtn').classList.toggle('border', mode === 'predict');
+            document.getElementById('modeTrainBtn').classList.toggle('border-slate-600', mode === 'predict');
+            
+            document.getElementById('modePredictBtn').classList.toggle('bg-gradient-to-r', mode === 'predict');
+            document.getElementById('modePredictBtn').classList.toggle('from-emerald-500', mode === 'predict');
+            document.getElementById('modePredictBtn').classList.toggle('to-emerald-600', mode === 'predict');
+            document.getElementById('modePredictBtn').classList.toggle('text-white', mode === 'predict');
+            document.getElementById('modePredictBtn').classList.toggle('bg-slate-700', mode === 'train');
+            document.getElementById('modePredictBtn').classList.toggle('text-gray-300', mode === 'train');
+            document.getElementById('modePredictBtn').classList.toggle('border', mode === 'train');
+            document.getElementById('modePredictBtn').classList.toggle('border-slate-600', mode === 'train');
+            
+            if (mode === 'predict') {
+                loadPredictModels();
+            }
+        }
+
+        function handleFileSelect() {
+            const file = document.getElementById("csvFile").files[0];
+            if (file) {
+                uploadedFile = file;
+                document.getElementById("fileName").textContent = "✓ " + file.name;
+                document.getElementById("fileName").classList.remove("hidden");
+            }
+        }
+
+        async function analyze() {
+            if (!uploadedFile) {
+                alert("Please select a CSV file first");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("file", uploadedFile);
+
+            try {
+                const res = await fetch("http://127.0.0.1:8000/analyze", {
+                    method: "POST",
+                    body: formData
+                });
+
+                const data = await res.json();
+                features = data.feature_columns;
+                trainedFeatures = features;
+
+                // Show analysis
+                const analysisDiv = document.getElementById("analysis");
+                analysisDiv.innerHTML = `
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="bg-blue-500/10 p-3 rounded">
+                            <p class="text-gray-400 text-xs uppercase tracking-wide">Rows</p>
+                            <p class="text-blue-300 font-semibold text-lg">${data.rows}</p>
+                        </div>
+                        <div class="bg-blue-500/10 p-3 rounded">
+                            <p class="text-gray-400 text-xs uppercase tracking-wide">Columns</p>
+                            <p class="text-blue-300 font-semibold text-lg">${data.columns}</p>
+                        </div>
+                        <div class="col-span-2">
+                            <p class="text-gray-400 text-xs uppercase tracking-wide mb-1">Target</p>
+                            <p class="text-blue-300 font-semibold">${data.target_column}</p>
+                        </div>
+                        <div class="col-span-2">
+                            <p class="text-gray-400 text-xs uppercase tracking-wide mb-1">Features</p>
+                            <p class="text-blue-300 font-semibold text-sm">${data.feature_columns.join(", ")}</p>
+                        </div>
+                    </div>
+                `;
+                document.getElementById("analysisCard").classList.remove("hidden");
+
+                // Create feature inputs for quick test
+                const quickInputDiv = document.getElementById("quickInputs");
+                quickInputDiv.innerHTML = "";
+                features.forEach(f => {
+                    quickInputDiv.innerHTML += `
+                        <div>
+                            <label class="text-gray-400 text-sm block mb-1">${f}</label>
+                            <input type="number" id="quick-${f}" placeholder="Enter value" class="w-full bg-slate-700 border border-emerald-500/30 rounded px-3 py-2 text-gray-100 focus:outline-none focus:border-emerald-500 transition-colors">
+                        </div>
+                    `;
+                });
+                document.getElementById("quickInputsContainer").classList.remove("hidden");
+
+            } catch (error) {
+                alert("Error analyzing dataset: " + error.message);
+            }
+        }
+
+        function updateAutoType() {
+            // Auto-detection can be implemented here if needed
+        }
+
+        async function train() {
+            const modelType = document.getElementById("modelType").value || "regression";
+            const modelName = document.getElementById("modelName").value;
+
+            if (!uploadedFile || !modelName) {
+                alert("Upload dataset and enter model name first");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("file", uploadedFile);
+
+            const endpoint = modelType === "regression"
+                ? "train-regression"
+                : "train-classification";
+
+            document.getElementById("trainLoading").classList.remove("hidden");
+            document.getElementById("trainResultCard").classList.add("hidden");
+
+            try {
+                const res = await fetch(
+                    `http://127.0.0.1:8000/${endpoint}?model_name=${modelName}`,
+                    {
+                        method: "POST",
+                        body: formData
+                    }
+                );
+
+                const data = await res.json();
+                trainedFeatures = data.features;
+                
+                let resultHTML = `<div class="space-y-2">`;
+                resultHTML += `<p><span class="text-green-400">✓ Model Name:</span> ${data.model_name}</p>`;
+                resultHTML += `<p><span class="text-green-400">✓ Target:</span> ${data.target_column}</p>`;
+                
+                if (data.r2_score !== undefined) {
+                    resultHTML += `<p><span class="text-green-400">✓ R² Score:</span> <span class="text-yellow-300 font-bold">${data.r2_score}</span></p>`;
+                } else if (data.accuracy !== undefined) {
+                    resultHTML += `<p><span class="text-green-400">✓ Accuracy:</span> <span class="text-yellow-300 font-bold">${(data.accuracy * 100).toFixed(2)}%</span></p>`;
+                }
+                
+                resultHTML += `<p><span class="text-green-400">✓ Saved:</span> ${data.model_saved_as}</p>`;
+                resultHTML += `</div>`;
+                
+                document.getElementById("trainResult").innerHTML = resultHTML;
+                document.getElementById("trainResultCard").classList.remove("hidden");
+                document.getElementById("quickPredictBtn").disabled = false;
+
+            } catch (error) {
+                alert("Error training model: " + error.message);
+            } finally {
+                document.getElementById("trainLoading").classList.add("hidden");
+            }
+        }
+
+        async function quickPredict() {
+            const inputData = {};
+            trainedFeatures.forEach(f => {
+                const value = document.getElementById("quick-" + f).value;
+                if (!value) {
+                    alert(`Please enter a value for ${f}`);
+                    return;
+                }
+                inputData[f] = Number(value);
+            });
+
+            const modelType = document.getElementById("modelType").value || "regression";
+            const modelName = document.getElementById("modelName").value;
+
+            if (!modelName) {
+                alert("Please train a model first");
+                return;
+            }
+
+            const endpoint = modelType === "regression"
+                ? "predict-regression"
+                : "predict-classification";
+
+            document.getElementById("quickLoading").classList.remove("hidden");
+            document.getElementById("quickResultCard").classList.add("hidden");
+
+            try {
+                const res = await fetch(
+                    `http://127.0.0.1:8000/${endpoint}?model_name=${modelName}`,
+                    {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify(inputData)
+                    }
+                );
+
+                const data = await res.json();
+                
+                let resultHTML = `<div class="space-y-2">`;
+                resultHTML += `<p><span class="text-cyan-300">Model:</span> ${data.model_used}</p>`;
+                
+                if (data.prediction !== undefined) {
+                    resultHTML += `<p class="text-2xl"><span class="text-cyan-300">Prediction:</span> <span class="text-yellow-300 font-bold">${data.prediction}</span></p>`;
+                } else if (data.predicted_class !== undefined) {
+                    resultHTML += `<p class="text-2xl"><span class="text-cyan-300">Predicted Class:</span> <span class="text-yellow-300 font-bold">${data.predicted_class}</span></p>`;
+                }
+                
+                resultHTML += `</div>`;
+                
+                document.getElementById("quickResult").innerHTML = resultHTML;
+                document.getElementById("quickResultCard").classList.remove("hidden");
+
+            } catch (error) {
+                alert("Error making prediction: " + error.message);
+            } finally {
+                document.getElementById("quickLoading").classList.add("hidden");
+            }
+        }
+
+        async function loadPredictModels() {
+            const type = document.getElementById("predModelType").value || "regression";
+            document.getElementById("modelsLoading").classList.remove("hidden");
+
+            try {
+                const res = await fetch(`http://127.0.0.1:8000/models/${type}`);
+                const data = await res.json();
+
+                const select = document.getElementById("predModelList");
+                select.innerHTML = "<option>Select a model...</option>";
+
+                if (data.available_models.length === 0) {
+                    select.innerHTML += "<option disabled>No models trained yet</option>";
+                } else {
+                    data.available_models.forEach(m => {
+                        const opt = document.createElement("option");
+                        opt.value = m;
+                        opt.text = m;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch (error) {
+                alert("Error loading models: " + error.message);
+            } finally {
+                document.getElementById("modelsLoading").classList.add("hidden");
+            }
+        }
+
+        async function loadPredictFeatures() {
+            const modelType = document.getElementById("predModelType").value || "regression";
+            const modelName = document.getElementById("predModelList").value;
+
+            if (!modelName || modelName === "Select a model...") {
+                document.getElementById("predInputsContainer").classList.add("hidden");
+                document.getElementById("modelInfoCard").classList.add("hidden");
+                document.getElementById("predPredictBtn").disabled = true;
+                return;
+            }
+
+            try {
+                const res = await fetch(`http://127.0.0.1:8000/model-metadata/${modelType}/${modelName}`);
+                const metadata = await res.json();
+
+                if (metadata.error) {
+                    alert("Error loading model metadata: " + metadata.error);
+                    return;
+                }
+
+                // Show model info
+                let infoHTML = `
+                    <div class="space-y-2">
+                        <p><span class="text-blue-300 font-semibold">Type:</span> ${metadata.model_type}</p>
+                        <p><span class="text-blue-300 font-semibold">Target:</span> ${metadata.target_column}</p>
+                        <p><span class="text-blue-300 font-semibold">Features:</span> ${metadata.features.length}</p>
+                `;
+                if (metadata.labels) {
+                    infoHTML += `<p><span class="text-blue-300 font-semibold">Classes:</span> ${metadata.labels.join(", ")}</p>`;
+                }
+                infoHTML += `</div>`;
+
+                document.getElementById("modelInfo").innerHTML = infoHTML;
+                document.getElementById("modelInfoCard").classList.remove("hidden");
+
+                // Create feature inputs
+                const inputDiv = document.getElementById("predInputs");
+                inputDiv.innerHTML = "";
+                metadata.features.forEach(f => {
+                    inputDiv.innerHTML += `
+                        <div>
+                            <label class="text-gray-400 text-sm block mb-1">${f}</label>
+                            <input type="number" id="pred-${f}" placeholder="Enter value" class="w-full bg-slate-700 border border-emerald-500/30 rounded px-3 py-2 text-gray-100 focus:outline-none focus:border-emerald-500 transition-colors">
+                        </div>
+                    `;
+                });
+                document.getElementById("predInputsContainer").classList.remove("hidden");
+                document.getElementById("predPredictBtn").disabled = false;
+
+                // Store features for prediction
+                features = metadata.features;
+
+            } catch (error) {
+                alert("Error loading model features: " + error.message);
+            }
+        }
+
+        async function makePrediction() {
+            const inputData = {};
+            features.forEach(f => {
+                const value = document.getElementById("pred-" + f).value;
+                if (!value) {
+                    alert(`Please enter a value for ${f}`);
+                    return;
+                }
+                inputData[f] = Number(value);
+            });
+
+            const modelType = document.getElementById("predModelType").value || "regression";
+            const modelName = document.getElementById("predModelList").value;
+
+            if (!modelName || modelName === "Select a model...") {
+                alert("Please select a model");
+                return;
+            }
+
+            const endpoint = modelType === "regression"
+                ? "predict-regression"
+                : "predict-classification";
+
+            document.getElementById("predLoading").classList.remove("hidden");
+            document.getElementById("predResultCard").classList.add("hidden");
+
+            try {
+                const res = await fetch(
+                    `http://127.0.0.1:8000/${endpoint}?model_name=${modelName}`,
+                    {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify(inputData)
+                    }
+                );
+
+                const data = await res.json();
+                
+                let resultHTML = `<div class="space-y-2">`;
+                resultHTML += `<p><span class="text-cyan-300">Model:</span> ${data.model_used}</p>`;
+                
+                if (data.prediction !== undefined) {
+                    resultHTML += `<p class="text-2xl"><span class="text-cyan-300">Prediction:</span> <span class="text-yellow-300 font-bold">${data.prediction}</span></p>`;
+                } else if (data.predicted_class !== undefined) {
+                    resultHTML += `<p class="text-2xl"><span class="text-cyan-300">Predicted Class:</span> <span class="text-yellow-300 font-bold">${data.predicted_class}</span></p>`;
+                }
+                
+                resultHTML += `</div>`;
+                
+                document.getElementById("predResult").innerHTML = resultHTML;
+                document.getElementById("predResultCard").classList.remove("hidden");
+
+            } catch (error) {
+                alert("Error making prediction: " + error.message);
+            } finally {
+                document.getElementById("predLoading").classList.add("hidden");
+            }
+        }
+    </script>
+
+</body>
+</html>
