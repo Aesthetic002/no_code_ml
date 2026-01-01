@@ -13,115 +13,37 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import json
-import sqlite3
+import io
 from datetime import datetime, timedelta
 import jwt
 from pydantic import BaseModel
 import hashlib
 import secrets
+from dotenv import load_dotenv
+from sqlalchemy.orm import Session
+
+# Load environment variables
+load_dotenv()
+
+# Import cloud storage and database
+from app.cloud_storage import CloudStorageConfig, CloudStorageManager
+from app.database import get_db, User, ModelMetadata
 
 # Database setup
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(BASE_DIR)
 MODELS_DIR = os.path.join(PROJECT_DIR, "models")
-DB_PATH = os.path.join(PROJECT_DIR, "users.db")
 
 # JWT and Security
-SECRET_KEY = "your-secret-key-change-this-in-production"
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
 ALGORITHM = "HS256"
 security = HTTPBearer()
 
-# Simple password hashing using PBKDF2
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(32)
-    pwd_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
-    return f"{salt}${pwd_hash.hex()}"
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    try:
-        salt, pwd_hash = hashed_password.split('$')
-        new_hash = hashlib.pbkdf2_hmac('sha256', plain_password.encode(), salt.encode(), 100000)
-        return new_hash.hex() == pwd_hash
-    except:
-        return False
-
-# Pydantic models
-class UserRegister(BaseModel):
-    username: str
-    email: str
-    password: str
-
-class UserLogin(BaseModel):
-    username: str
-    password: str
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-    username: str
-
-app = FastAPI()
-
-# CORS configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Serve frontend
-app.mount(
-    "/frontend",
-    StaticFiles(directory=os.path.join(PROJECT_DIR, "frontend")),
-    name="frontend"
-)
-
-@app.get("/", response_class=HTMLResponse)
-def serve_frontend():
-    index_path = os.path.join(PROJECT_DIR, "frontend", "index.html")
-    with open(index_path) as f:
-        return f.read()
-
-@app.get("/api/test")
-def test_endpoint():
-    return {"status": "ok", "message": "API is working"}
-
-# Database initialization
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    # Users table
-    c.execute('''CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        hashed_password TEXT NOT NULL,
-        is_admin BOOLEAN DEFAULT 0,
-        created_at TEXT NOT NULL,
-        last_login TEXT
-    )''')
-    
-    # Models metadata table (for admin dashboard)
-    c.execute('''CREATE TABLE IF NOT EXISTS models_metadata (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        model_name TEXT NOT NULL,
-        model_type TEXT NOT NULL,
-        features TEXT NOT NULL,
-        accuracy REAL,
-        r2_score REAL,
-        target_column TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    )''')
-    
-    conn.commit()
-    conn.close()
-
-init_db()
+# Cloud Storage Setup
+storage_config = CloudStorageConfig()
+storage_manager = CloudStorageManager(storage_config)
+backend = os.getenv("STORAGE_BACKEND", "local")
+print(f"🚀 Using {backend} storage backend")
 
 # Helper functions
 def hash_password(password: str) -> str:
@@ -158,38 +80,82 @@ def verify_token(credentials: HTTPAuthorizationCredentials) -> str:
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-def get_user_id(username: str) -> int:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT id FROM users WHERE username = ?", (username,))
-    result = c.fetchone()
-    conn.close()
-    if result:
-        return result[0]
-    raise HTTPException(status_code=404, detail="User not found")
+def get_user_id_from_db(username: str, db: Session) -> int:
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user.id
 
 def get_user_dir(username: str) -> str:
+    """Keep this for local storage fallback"""
     user_models_dir = os.path.join(MODELS_DIR, username)
     os.makedirs(user_models_dir, exist_ok=True)
     return user_models_dir
 
+# Pydantic models
+class UserRegister(BaseModel):
+    username: str
+    email: str
+    password: str
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    username: str
+
+app = FastAPI()
+
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Serve frontend
+app.mount(
+    "/frontend",
+    StaticFiles(directory=os.path.join(PROJECT_DIR, "frontend"), html=True),
+    name="frontend"
+)
+
+@app.get("/", response_class=HTMLResponse)
+def serve_frontend():
+    index_path = os.path.join(PROJECT_DIR, "frontend", "index.html")
+    with open(index_path) as f:
+        return f.read()
+
+@app.get("/api/test")
+def test_endpoint():
+    return {"status": "ok", "message": "API is working"}
+
 # ============ AUTHENTICATION ENDPOINTS ============
 
 @app.post("/api/register", response_model=Token)
-async def register(user: UserRegister):
+async def register(user: UserRegister, db: Session = Depends(get_db)):
     """Register a new user"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
     try:
-        hashed_password = hash_password(user.password)
-        created_at = datetime.utcnow().isoformat()
+        existing_user = db.query(User).filter(
+            (User.username == user.username) | (User.email == user.email)
+        ).first()
         
-        c.execute(
-            "INSERT INTO users (username, email, hashed_password, created_at) VALUES (?, ?, ?, ?)",
-            (user.username, user.email, hashed_password, created_at)
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Username or email already exists")
+        
+        hashed_password = hash_password(user.password)
+        new_user = User(
+            username=user.username,
+            email=user.email,
+            hashed_password=hashed_password
         )
-        conn.commit()
+        db.add(new_user)
+        db.commit()
         
         access_token = create_access_token(user.username)
         
@@ -198,31 +164,23 @@ async def register(user: UserRegister):
             "token_type": "bearer",
             "username": user.username
         }
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Username or email already exists")
-    finally:
-        conn.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/login", response_model=Token)
-async def login(user: UserLogin):
+async def login(user: UserLogin, db: Session = Depends(get_db)):
     """Login user"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    db_user = db.query(User).filter(User.username == user.username).first()
     
-    c.execute("SELECT hashed_password FROM users WHERE username = ?", (user.username,))
-    result = c.fetchone()
-    conn.close()
-    
-    if not result or not verify_password(user.password, result[0]):
+    if not db_user or not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     # Update last login
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE users SET last_login = ? WHERE username = ?", 
-              (datetime.utcnow().isoformat(), user.username))
-    conn.commit()
-    conn.close()
+    db_user.last_login = datetime.utcnow()
+    db.commit()
     
     access_token = create_access_token(user.username)
     
@@ -233,27 +191,24 @@ async def login(user: UserLogin):
     }
 
 @app.get("/api/user/profile")
-async def get_profile(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_profile(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
     """Get current user profile"""
     username = verify_token(credentials)
     
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT id, username, email, is_admin, created_at FROM users WHERE username = ?", (username,))
-    result = c.fetchone()
-    conn.close()
+    user = db.query(User).filter(User.username == username).first()
     
-    if not result:
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     return {
-        "id": result[0],
-        "username": result[1],
-        "email": result[2],
-        "is_admin": result[3],
-        "created_at": result[4]
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "is_admin": user.is_admin,
+        "created_at": user.created_at.isoformat() if user.created_at else None
     }
 
+# ============ ML ENDPOINTS ============
 
 @app.post("/upload")
 async def upload_csv(file: UploadFile = File(...)):
@@ -265,6 +220,7 @@ async def upload_csv(file: UploadFile = File(...)):
         "columns": df.shape[1],
         "column_names": df.columns.tolist()
     }
+
 @app.post("/analyze")
 async def analyze_csv(file: UploadFile = File(...), credentials: HTTPAuthorizationCredentials = Depends(security)):
     username = verify_token(credentials)
@@ -304,14 +260,25 @@ async def detect_problem(file: UploadFile = File(...)):
 async def train_regression(
     model_name: str,
     file: UploadFile = File(...),
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
 ):
     username = verify_token(credentials)
-    user_id = get_user_id(username)
+    user_id = get_user_id_from_db(username, db)
     
     df = pd.read_csv(file.file)
 
     target_column = df.columns[-1]
+    
+    # Validate target column is numeric for regression
+    if not pd.api.types.is_numeric_dtype(df[target_column]):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Target column '{target_column}' must be numeric for regression. "
+                   f"Found type: {df[target_column].dtype}. "
+                   f"Use classification for categorical targets."
+        )
+    
     X = df.drop(columns=[target_column])
     y = df[target_column]
 
@@ -327,57 +294,71 @@ async def train_regression(
     y_pred = model.predict(X_test)
     score = r2_score(y_test, y_pred)
 
-    # User-specific directory
-    user_dir = get_user_dir(username)
-    regression_dir = os.path.join(user_dir, "regression")
-    os.makedirs(regression_dir, exist_ok=True)
+    # Save model to cloud
+    model_bytes = io.BytesIO()
+    joblib.dump(model, model_bytes)
+    model_bytes.seek(0)  # Reset position to start
+    model_data = model_bytes.getvalue()
     
-    model_path = os.path.join(regression_dir, f"{model_name}.pkl")
-    metadata_path = os.path.join(regression_dir, f"{model_name}_metadata.json")
+    try:
+        cloud_path = storage_manager.upload_model(
+            model_data,
+            username,
+            model_name,
+            "regression"
+        )
+        print(f"✅ Model uploaded to: {cloud_path}")
+    except Exception as e:
+        print(f"❌ Upload failed: {str(e)}")
+        return {"error": f"Failed to upload model: {str(e)}"}
     
-    # Save model
-    joblib.dump(model, model_path)
-    
-    # Save metadata
-    metadata = {
-        "model_name": model_name,
-        "target_column": target_column,
-        "features": X.columns.tolist(),
-        "model_type": "regression"
-    }
-    with open(metadata_path, "w") as f:
-        json.dump(metadata, f)
-    
-    # Save to database
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO models_metadata (user_id, model_name, model_type, features, r2_score, target_column, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user_id, model_name, "regression", ",".join(X.columns.tolist()), score, target_column, datetime.utcnow().isoformat())
-    )
-    conn.commit()
-    conn.close()
+    # Save metadata to database
+    db.add(ModelMetadata(
+        user_id=user_id,
+        model_name=model_name,
+        model_type="regression",
+        features=",".join(X.columns.tolist()),
+        r2_score=float(score),
+        target_column=target_column,
+        cloud_path=cloud_path
+    ))
+    db.commit()
 
     return {
         "model_name": model_name,
         "target_column": target_column,
         "r2_score": round(score, 3),
-        "model_saved_as": model_path,
+        "model_saved_as": cloud_path,
         "features": X.columns.tolist()
     }
 
-
 @app.post("/predict-regression")
-async def predict_regression(model_name: str, data: dict, credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def predict_regression(
+    model_name: str,
+    data: dict,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
     username = verify_token(credentials)
-    user_dir = get_user_dir(username)
+    user_id = get_user_id_from_db(username, db)
     
-    model_path = os.path.join(user_dir, "regression", f"{model_name}.pkl")
-
-    if not os.path.exists(model_path):
+    # Get model from database
+    db_model = db.query(ModelMetadata).filter(
+        (ModelMetadata.model_name == model_name) &
+        (ModelMetadata.user_id == user_id) &
+        (ModelMetadata.model_type == "regression")
+    ).first()
+    
+    if not db_model:
         return {"error": "Model not found"}
-
-    model = joblib.load(model_path)
+    
+    # Download from cloud
+    try:
+        model_data = storage_manager.download_model(db_model.cloud_path)
+        model = joblib.load(io.BytesIO(model_data))
+    except Exception as e:
+        return {"error": f"Failed to load model: {str(e)}"}
+    
     input_df = pd.DataFrame([data])
     prediction = model.predict(input_df)[0]
 
@@ -386,19 +367,29 @@ async def predict_regression(model_name: str, data: dict, credentials: HTTPAutho
         "prediction": round(float(prediction), 2)
     }
 
-
 @app.post("/train-classification")
 async def train_classification(
     model_name: str,
     file: UploadFile = File(...),
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
 ):
     username = verify_token(credentials)
-    user_id = get_user_id(username)
+    user_id = get_user_id_from_db(username, db)
     
     df = pd.read_csv(file.file)
 
     target_column = df.columns[-1]
+    
+    # Validate target column is categorical for classification
+    if pd.api.types.is_numeric_dtype(df[target_column]):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Target column '{target_column}' should be categorical for classification. "
+                   f"Found numeric type: {df[target_column].dtype}. "
+                   f"Use regression for numeric targets."
+        )
+    
     y = df[target_column].astype("category")
 
     label_map = dict(enumerate(y.cat.categories))
@@ -416,63 +407,76 @@ async def train_classification(
 
     acc = accuracy_score(y_test, model.predict(X_test))
 
-    # User-specific directory
-    user_dir = get_user_dir(username)
-    classification_dir = os.path.join(user_dir, "classification")
-    os.makedirs(classification_dir, exist_ok=True)
-    
-    model_path = os.path.join(classification_dir, f"{model_name}.pkl")
-    metadata_path = os.path.join(classification_dir, f"{model_name}_metadata.json")
-    
-    # Save model bundle
+    # Save model bundle to cloud
+    model_bytes = io.BytesIO()
     joblib.dump(
         {"model": model, "labels": label_map},
-        model_path
+        model_bytes
     )
+    model_bytes.seek(0)  # Reset position to start
+    model_data = model_bytes.getvalue()
     
-    # Save metadata
-    metadata = {
-        "model_name": model_name,
-        "target_column": target_column,
-        "features": X.columns.tolist(),
-        "model_type": "classification",
-        "labels": list(label_map.values())
-    }
-    with open(metadata_path, "w") as f:
-        json.dump(metadata, f)
+    try:
+        cloud_path = storage_manager.upload_model(
+            model_data,
+            username,
+            model_name,
+            "classification"
+        )
+        print(f"✅ Model uploaded to: {cloud_path}")
+    except Exception as e:
+        print(f"❌ Upload failed: {str(e)}")
+        return {"error": f"Failed to upload model: {str(e)}"}
     
-    # Save to database
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO models_metadata (user_id, model_name, model_type, features, accuracy, target_column, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user_id, model_name, "classification", ",".join(X.columns.tolist()), acc, target_column, datetime.utcnow().isoformat())
-    )
-    conn.commit()
-    conn.close()
+    # Save metadata to database
+    db.add(ModelMetadata(
+        user_id=user_id,
+        model_name=model_name,
+        model_type="classification",
+        features=",".join(X.columns.tolist()),
+        accuracy=float(acc),
+        target_column=target_column,
+        cloud_path=cloud_path
+    ))
+    db.commit()
 
     return {
         "model_name": model_name,
         "target_column": target_column,
         "accuracy": round(acc, 3),
         "labels": label_map,
-        "model_saved_as": model_path,
+        "model_saved_as": cloud_path,
         "features": X.columns.tolist()
     }
 
 @app.post("/predict-classification")
-async def predict_classification(model_name: str, data: dict, credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def predict_classification(
+    model_name: str,
+    data: dict,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
     username = verify_token(credentials)
-    user_dir = get_user_dir(username)
+    user_id = get_user_id_from_db(username, db)
     
-    model_path = os.path.join(user_dir, "classification", f"{model_name}.pkl")
-
-    if not os.path.exists(model_path):
+    # Get model from database
+    db_model = db.query(ModelMetadata).filter(
+        (ModelMetadata.model_name == model_name) &
+        (ModelMetadata.user_id == user_id) &
+        (ModelMetadata.model_type == "classification")
+    ).first()
+    
+    if not db_model:
         return {"error": "Model not found"}
-
-    bundle = joblib.load(model_path)
-    model = bundle["model"]
-    label_map = bundle["labels"]
+    
+    # Download from cloud
+    try:
+        model_data = storage_manager.download_model(db_model.cloud_path)
+        bundle = joblib.load(io.BytesIO(model_data))
+        model = bundle["model"]
+        label_map = bundle["labels"]
+    except Exception as e:
+        return {"error": f"Failed to load model: {str(e)}"}
 
     input_df = pd.DataFrame([data])
     pred_code = model.predict(input_df)[0]
@@ -483,168 +487,154 @@ async def predict_classification(model_name: str, data: dict, credentials: HTTPA
         "predicted_class": pred_label
     }
 
-
 @app.get("/models/{model_type}")
-def list_models(model_type: str, credentials: HTTPAuthorizationCredentials = Depends(security)):
+def list_models(model_type: str, credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
     username = verify_token(credentials)
-    user_dir = get_user_dir(username)
-    base_path = os.path.join(user_dir, model_type)
-
-    if not os.path.exists(base_path):
-        return {"available_models": []}
-
-    models = [
-        file.replace(".pkl", "")
-        for file in os.listdir(base_path)
-        if file.endswith(".pkl")
-    ]
-
+    user_id = get_user_id_from_db(username, db)
+    
+    models = db.query(ModelMetadata).filter(
+        (ModelMetadata.user_id == user_id) &
+        (ModelMetadata.model_type == model_type)
+    ).all()
+    
     return {
         "model_type": model_type,
-        "available_models": models
+        "available_models": [m.model_name for m in models]
     }
 
-
 @app.get("/model-metadata/{model_type}/{model_name}")
-def get_model_metadata(model_type: str, model_name: str, credentials: HTTPAuthorizationCredentials = Depends(security)):
+def get_model_metadata(
+    model_type: str,
+    model_name: str,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
     username = verify_token(credentials)
-    user_dir = get_user_dir(username)
+    user_id = get_user_id_from_db(username, db)
     
-    metadata_path = os.path.join(user_dir, model_type, f"{model_name}_metadata.json")
+    db_model = db.query(ModelMetadata).filter(
+        (ModelMetadata.model_name == model_name) &
+        (ModelMetadata.model_type == model_type) &
+        (ModelMetadata.user_id == user_id)
+    ).first()
     
-    if not os.path.exists(metadata_path):
+    if not db_model:
         return {"error": "Model metadata not found"}
     
-    with open(metadata_path, "r") as f:
-        metadata = json.load(f)
-    
-    return metadata
-
+    return {
+        "model_name": db_model.model_name,
+        "model_type": db_model.model_type,
+        "target_column": db_model.target_column,
+        "features": db_model.features.split(","),
+        "accuracy": db_model.accuracy,
+        "r2_score": db_model.r2_score,
+        "created_at": db_model.created_at.isoformat() if db_model.created_at else None
+    }
 
 # ============ ADMIN ENDPOINTS ============
 
-def verify_admin(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+def verify_admin(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)) -> str:
     """Verify user is admin"""
     username = verify_token(credentials)
     
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT is_admin FROM users WHERE username = ?", (username,))
-    result = c.fetchone()
-    conn.close()
+    user = db.query(User).filter(User.username == username).first()
     
-    if not result or not result[0]:
+    if not user or not user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     
     return username
 
 @app.get("/api/admin/dashboard")
-async def admin_dashboard(admin_user: str = Depends(verify_admin)):
+async def admin_dashboard(
+    admin_user: str = Depends(verify_admin),
+    db: Session = Depends(get_db)
+):
     """Get admin dashboard stats"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
     
-    # Get user stats
-    c.execute("SELECT COUNT(*) FROM users")
-    total_users = c.fetchone()[0]
+    total_users = db.query(User).count()
+    total_models = db.query(ModelMetadata).count()
     
-    c.execute("SELECT COUNT(*) FROM models_metadata")
-    total_models = c.fetchone()[0]
-    
-    # Get recent models
-    c.execute("""
-        SELECT u.username, m.model_name, m.model_type, m.created_at 
-        FROM models_metadata m 
-        JOIN users u ON m.user_id = u.id 
-        ORDER BY m.created_at DESC 
-        LIMIT 10
-    """)
-    recent_models = c.fetchall()
-    
-    conn.close()
+    recent_models = db.query(ModelMetadata).order_by(
+        ModelMetadata.created_at.desc()
+    ).limit(10).all()
     
     return {
         "total_users": total_users,
         "total_models": total_models,
+        "active_users": total_users,
         "recent_models": [
             {
-                "username": m[0],
-                "model_name": m[1],
-                "model_type": m[2],
-                "created_at": m[3]
+                "username": db.query(User).filter(User.id == m.user_id).first().username,
+                "model_name": m.model_name,
+                "model_type": m.model_type,
+                "created_at": m.created_at.isoformat() if m.created_at else None
             } for m in recent_models
         ]
     }
 
 @app.get("/api/admin/users")
-async def get_all_users(admin_user: str = Depends(verify_admin)):
+async def get_all_users(
+    admin_user: str = Depends(verify_admin),
+    db: Session = Depends(get_db)
+):
     """Get all users list"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
     
-    c.execute("""
-        SELECT id, username, email, is_admin, created_at, last_login 
-        FROM users 
-        ORDER BY created_at DESC
-    """)
-    users = c.fetchall()
-    conn.close()
+    users = db.query(User).order_by(User.created_at.desc()).all()
     
     return {
         "users": [
             {
-                "id": u[0],
-                "username": u[1],
-                "email": u[2],
-                "is_admin": u[3],
-                "created_at": u[4],
-                "last_login": u[5]
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "is_admin": u.is_admin,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "last_login": u.last_login.isoformat() if u.last_login else None
             } for u in users
         ]
     }
 
 @app.post("/api/admin/users/{user_id}/toggle-admin")
-async def toggle_admin(user_id: int, admin_user: str = Depends(verify_admin)):
+async def toggle_admin(
+    user_id: int,
+    admin_user: str = Depends(verify_admin),
+    db: Session = Depends(get_db)
+):
     """Toggle user admin status"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
     
-    c.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,))
-    result = c.fetchone()
+    user = db.query(User).filter(User.id == user_id).first()
     
-    if not result:
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    new_status = not result[0]
-    c.execute("UPDATE users SET is_admin = ? WHERE id = ?", (new_status, user_id))
-    conn.commit()
-    conn.close()
+    user.is_admin = not user.is_admin
+    db.commit()
     
-    return {"success": True, "is_admin": new_status}
+    return {"success": True, "is_admin": user.is_admin}
 
 @app.delete("/api/admin/users/{user_id}")
-async def delete_user(user_id: int, admin_user: str = Depends(verify_admin)):
+async def delete_user(
+    user_id: int,
+    admin_user: str = Depends(verify_admin),
+    db: Session = Depends(get_db)
+):
     """Delete a user and their models"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
     
-    c.execute("SELECT username FROM users WHERE id = ?", (user_id,))
-    result = c.fetchone()
+    user = db.query(User).filter(User.id == user_id).first()
     
-    if not result:
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    username = result[0]
+    username = user.username
     
     # Delete models metadata
-    c.execute("DELETE FROM models_metadata WHERE user_id = ?", (user_id,))
+    db.query(ModelMetadata).filter(ModelMetadata.user_id == user_id).delete()
     
     # Delete user
-    c.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    conn.commit()
-    conn.close()
+    db.delete(user)
+    db.commit()
     
-    # Delete user directory
+    # Delete local user directory if exists
     user_dir = os.path.join(MODELS_DIR, username)
     if os.path.exists(user_dir):
         import shutil
@@ -653,36 +643,31 @@ async def delete_user(user_id: int, admin_user: str = Depends(verify_admin)):
     return {"success": True, "message": f"User {username} deleted"}
 
 @app.get("/api/admin/user-models/{user_id}")
-async def get_user_models(user_id: int, admin_user: str = Depends(verify_admin)):
+async def get_user_models(
+    user_id: int,
+    admin_user: str = Depends(verify_admin),
+    db: Session = Depends(get_db)
+):
     """Get all models of a specific user"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
     
-    c.execute("SELECT username FROM users WHERE id = ?", (user_id,))
-    user_result = c.fetchone()
+    user = db.query(User).filter(User.id == user_id).first()
     
-    if not user_result:
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    c.execute("""
-        SELECT model_name, model_type, accuracy, r2_score, created_at 
-        FROM models_metadata 
-        WHERE user_id = ? 
-        ORDER BY created_at DESC
-    """, (user_id,))
-    
-    models = c.fetchall()
-    conn.close()
+    models = db.query(ModelMetadata).filter(
+        ModelMetadata.user_id == user_id
+    ).order_by(ModelMetadata.created_at.desc()).all()
     
     return {
-        "username": user_result[0],
+        "username": user.username,
         "models": [
             {
-                "model_name": m[0],
-                "model_type": m[1],
-                "accuracy": m[2],
-                "r2_score": m[3],
-                "created_at": m[4]
+                "model_name": m.model_name,
+                "model_type": m.model_type,
+                "accuracy": m.accuracy,
+                "r2_score": m.r2_score,
+                "created_at": m.created_at.isoformat() if m.created_at else None
             } for m in models
         ]
     }

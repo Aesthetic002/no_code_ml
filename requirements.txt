@@ -8,3 +8,8 @@ joblib
 passlib[bcrypt]
 PyJWT
 python-jose[cryptography]
+sqlalchemy
+psycopg2-binary
+boto3
+supabase
+python-dotenv

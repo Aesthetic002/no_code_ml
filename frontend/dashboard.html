@@ -226,9 +226,16 @@
                 method: "POST", body: fd, headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await res.json();
+            
+            if (data.error) {
+                alert("Error: " + data.error);
+                document.getElementById("trainLoading").classList.add("hidden");
+                return;
+            }
+            
             let html = `<p>✓ Model: ${data.model_name}</p>`;
-            if (data.r2_score) html += `<p>R² Score: ${data.r2_score}</p>`;
-            else if (data.accuracy) html += `<p>Accuracy: ${(data.accuracy*100).toFixed(2)}%</p>`;
+            if (data.r2_score !== null && data.r2_score !== undefined) html += `<p>R² Score: ${data.r2_score.toFixed(4)}</p>`;
+            else if (data.accuracy !== null && data.accuracy !== undefined) html += `<p>Accuracy: ${(data.accuracy*100).toFixed(2)}%</p>`;
             document.getElementById("trainResult").innerHTML = html;
             document.getElementById("trainResultCard").classList.remove("hidden");
             document.getElementById("quickPredictBtn").disabled = false;
@@ -239,13 +246,29 @@
             const data = {}, type = document.getElementById("modelType").value || "regression";
             features.forEach(f => data[f] = Number(document.getElementById("quick-"+f).value));
             const name = document.getElementById("modelName").value;
+            
+            if (!name) { alert("Train a model first"); return; }
+            if (Object.keys(data).length === 0) { alert("No features to predict"); return; }
+            
+            document.getElementById("quickLoading").classList.remove("hidden");
             const endpoint = type === "regression" ? "predict-regression" : "predict-classification";
             const res = await fetch(`http://127.0.0.1:9000/${endpoint}?model_name=${name}`, {
                 method: "POST", headers: { "Content-Type": "application/json", 'Authorization': `Bearer ${token}` }, body: JSON.stringify(data)
             });
             const result = await res.json();
-            document.getElementById("quickResult").innerHTML = result.prediction ? `Prediction: ${result.prediction}` : `Class: ${result.predicted_class}`;
+            
+            if (result.error) {
+                document.getElementById("quickResult").innerHTML = `Error: ${result.error}`;
+            } else if (result.prediction !== undefined && result.prediction !== null) {
+                document.getElementById("quickResult").innerHTML = `Prediction: <strong>${result.prediction}</strong>`;
+            } else if (result.predicted_class) {
+                document.getElementById("quickResult").innerHTML = `Class: <strong>${result.predicted_class}</strong>`;
+            } else {
+                document.getElementById("quickResult").innerHTML = `Unexpected response: ${JSON.stringify(result)}`;
+            }
+            
             document.getElementById("quickResultCard").classList.remove("hidden");
+            document.getElementById("quickLoading").classList.add("hidden");
         }
 
         async function loadPredictModels() {
@@ -280,6 +303,12 @@
                 { headers: { 'Authorization': `Bearer ${token}` } });
             const meta = await res.json();
             
+            if (meta.error) {
+                document.getElementById("modelInfo").innerHTML = `<p style="color: red;">Error: ${meta.error}</p>`;
+                document.getElementById("modelInfoCard").classList.remove("hidden");
+                return;
+            }
+            
             document.getElementById("modelInfo").innerHTML = `
                 <p>Type: ${meta.model_type}</p>
                 <p>Target: ${meta.target_column}</p>
@@ -288,24 +317,46 @@
             document.getElementById("modelInfoCard").classList.remove("hidden");
             
             let html = "";
-            meta.features.forEach(f => html += `<div><label class="text-sm">${f}</label><input type="number" id="pred-${f}" class="w-full bg-slate-700 border rounded px-2 py-1"></div>`);
+            meta.features.forEach(f => {
+                const cleanFeature = f.trim();
+                html += `<div><label class="text-sm">${cleanFeature}</label><input type="number" id="pred-${cleanFeature}" class="w-full bg-slate-700 border rounded px-2 py-1"></div>`;
+            });
             document.getElementById("predInputs").innerHTML = html;
             document.getElementById("predInputsContainer").classList.remove("hidden");
             document.getElementById("predPredictBtn").disabled = false;
-            features = meta.features;
+            features = meta.features.map(f => f.trim());
         }
 
         async function makePrediction() {
             const data = {}, type = document.getElementById("predModelType").value;
-            features.forEach(f => data[f] = Number(document.getElementById("pred-"+f).value));
+            features.forEach(f => {
+                const cleanFeature = f.trim();
+                const val = document.getElementById("pred-"+cleanFeature).value;
+                if (val === "") { alert(`Enter value for ${cleanFeature}`); throw new Error("Missing input"); }
+                data[cleanFeature] = Number(val);
+            });
+            
             const name = document.getElementById("predModelList").value;
+            document.getElementById("predLoading").classList.remove("hidden");
+            
             const endpoint = type === "regression" ? "predict-regression" : "predict-classification";
             const res = await fetch(`http://127.0.0.1:9000/${endpoint}?model_name=${name}`, {
                 method: "POST", headers: { "Content-Type": "application/json", 'Authorization': `Bearer ${token}` }, body: JSON.stringify(data)
             });
             const result = await res.json();
-            document.getElementById("predResult").innerHTML = result.prediction ? `Prediction: ${result.prediction}` : `Class: ${result.predicted_class}`;
+            
+            if (result.error) {
+                document.getElementById("predResult").innerHTML = `Error: ${result.error}`;
+            } else if (result.prediction !== undefined && result.prediction !== null) {
+                document.getElementById("predResult").innerHTML = `Prediction: <strong>${result.prediction}</strong>`;
+            } else if (result.predicted_class) {
+                document.getElementById("predResult").innerHTML = `Class: <strong>${result.predicted_class}</strong>`;
+            } else {
+                document.getElementById("predResult").innerHTML = `Unexpected response: ${JSON.stringify(result)}`;
+            }
+            
             document.getElementById("predResultCard").classList.remove("hidden");
+            document.getElementById("predLoading").classList.add("hidden");
         }
     </script>
 </body>
