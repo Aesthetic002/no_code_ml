@@ -199,11 +199,27 @@
                 { method: "POST", body: fd, headers: { 'Authorization': `Bearer ${token}` } });
             const data = await res.json();
             features = data.feature_columns;
-            document.getElementById("analysis").innerHTML = `
-                <p>Rows: ${data.rows} | Cols: ${data.columns}</p>
-                <p>Target: ${data.target_column}</p>
-                <p>Features: ${data.feature_columns.join(", ")}</p>
+            
+            // Build detailed analysis report
+            let analysisHTML = `
+                <div class="space-y-2">
+                    <p><strong>Original Data:</strong> ${data.rows} rows | ${data.columns} columns</p>
+                    <p><strong>After Cleaning:</strong> ${data.cleaned_rows} rows (${data.rows_retained_percent}% retained)</p>
+                    <p><strong>Target Column:</strong> ${data.target_column}</p>
+                    <p><strong>Features:</strong> ${data.feature_columns.join(", ")}</p>
             `;
+            
+            if (data.cleaning_actions && data.cleaning_actions.length > 0) {
+                analysisHTML += '<p><strong>Data Cleaning:</strong></p><ul class="list-disc list-inside text-sm text-gray-300">';
+                data.cleaning_actions.forEach(action => {
+                    analysisHTML += `<li>${action}</li>`;
+                });
+                analysisHTML += '</ul>';
+            }
+            
+            analysisHTML += '</div>';
+            
+            document.getElementById("analysis").innerHTML = analysisHTML;
             document.getElementById("analysisCard").classList.remove("hidden");
             
             let html = "";

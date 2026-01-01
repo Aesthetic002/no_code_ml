@@ -48,6 +48,9 @@
             <button onclick="switchTab('dashboard')" id="dashboardTab" class="px-6 py-2 bg-purple-600 text-white rounded-lg font-semibold">
                 <i class="fas fa-chart-line mr-2"></i>Dashboard
             </button>
+            <button onclick="switchTab('models')" id="modelsTab" class="px-6 py-2 bg-slate-700 text-gray-300 rounded-lg font-semibold">
+                <i class="fas fa-cube mr-2"></i>All Models
+            </button>
             <button onclick="switchTab('users')" id="usersTab" class="px-6 py-2 bg-slate-700 text-gray-300 rounded-lg font-semibold">
                 <i class="fas fa-users mr-2"></i>Users
             </button>
@@ -58,6 +61,35 @@
             <h2 class="text-xl font-bold text-purple-300 mb-4">Recent Models</h2>
             <div id="recentModels" class="space-y-3">
                 <p class="text-gray-400">Loading...</p>
+            </div>
+        </div>
+
+        <!-- Models Tab -->
+        <div id="modelsContent" class="hidden bg-gradient-to-br from-slate-800 to-slate-700 rounded-xl p-6 border border-slate-600">
+            <h2 class="text-xl font-bold text-blue-300 mb-4">All Models</h2>
+            <div class="mb-4 flex gap-2">
+                <input type="text" id="modelSearch" placeholder="Search models..." class="flex-1 bg-slate-700 border border-slate-600 rounded px-3 py-2 text-gray-100">
+                <select id="modelTypeFilter" class="bg-slate-700 border border-slate-600 rounded px-3 py-2 text-gray-100">
+                    <option value="">All Types</option>
+                    <option value="regression">Regression</option>
+                    <option value="classification">Classification</option>
+                </select>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="border-b border-slate-600">
+                        <tr>
+                            <th class="text-left py-3 px-4">Model Name</th>
+                            <th class="text-left py-3 px-4">Owner</th>
+                            <th class="text-left py-3 px-4">Type</th>
+                            <th class="text-left py-3 px-4">Score</th>
+                            <th class="text-left py-3 px-4">Created</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modelsList" class="divide-y divide-slate-700">
+                        <tr><td colspan="5" class="text-center py-4 text-gray-400">Loading...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -89,6 +121,7 @@
         window.addEventListener('load', () => {
             if (!token) window.location.href = '/auth.html';
             loadDashboard();
+            loadAllModels();
         });
 
         async function loadDashboard() {
@@ -139,11 +172,15 @@
         }
 
         function switchTab(tab) {
-            document.getElementById('dashboardContent').classList.toggle('hidden', tab === 'users');
-            document.getElementById('usersContent').classList.toggle('hidden', tab === 'dashboard');
-            document.getElementById('dashboardTab').classList.toggle('bg-slate-700', tab === 'users');
+            document.getElementById('dashboardContent').classList.toggle('hidden', tab !== 'dashboard');
+            document.getElementById('modelsContent').classList.toggle('hidden', tab !== 'models');
+            document.getElementById('usersContent').classList.toggle('hidden', tab !== 'users');
+            
+            document.getElementById('dashboardTab').classList.toggle('bg-slate-700', tab !== 'dashboard');
             document.getElementById('dashboardTab').classList.toggle('bg-purple-600', tab === 'dashboard');
-            document.getElementById('usersTab').classList.toggle('bg-slate-700', tab === 'dashboard');
+            document.getElementById('modelsTab').classList.toggle('bg-slate-700', tab !== 'models');
+            document.getElementById('modelsTab').classList.toggle('bg-purple-600', tab === 'models');
+            document.getElementById('usersTab').classList.toggle('bg-slate-700', tab !== 'users');
             document.getElementById('usersTab').classList.toggle('bg-blue-600', tab === 'users');
         }
 
@@ -163,6 +200,53 @@
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (res.ok) loadUsers();
+        }
+
+        async function loadAllModels() {
+            const res = await fetch('http://127.0.0.1:9000/api/admin/all-models', 
+                { headers: { 'Authorization': `Bearer ${token}` } });
+            const data = await res.json();
+            
+            displayModels(data.models || []);
+            
+            // Setup search and filter
+            document.getElementById('modelSearch').addEventListener('input', () => filterModels(data.models || []));
+            document.getElementById('modelTypeFilter').addEventListener('change', () => filterModels(data.models || []));
+        }
+
+        function filterModels(models) {
+            const search = document.getElementById('modelSearch').value.toLowerCase();
+            const typeFilter = document.getElementById('modelTypeFilter').value;
+            
+            const filtered = models.filter(m => {
+                const matchesSearch = m.model_name.toLowerCase().includes(search) || m.username.toLowerCase().includes(search);
+                const matchesType = !typeFilter || m.model_type === typeFilter;
+                return matchesSearch && matchesType;
+            });
+            
+            displayModels(filtered);
+        }
+
+        function displayModels(models) {
+            let html = '';
+            if (models.length === 0) {
+                html = '<tr><td colspan="5" class="text-center py-4 text-gray-400">No models found</td></tr>';
+            } else {
+                models.forEach(m => {
+                    const score = m.model_type === 'regression' 
+                        ? `R²: ${m.r2_score ? m.r2_score.toFixed(4) : 'N/A'}`
+                        : `Acc: ${m.accuracy ? (m.accuracy * 100).toFixed(2) : 'N/A'}%`;
+                    
+                    html += `<tr>
+                        <td class="py-3 px-4 text-blue-300">${m.model_name}</td>
+                        <td class="py-3 px-4 text-gray-400">${m.username}</td>
+                        <td class="py-3 px-4"><span class="px-2 py-1 rounded text-xs ${m.model_type === 'regression' ? 'bg-blue-600' : 'bg-purple-600'}">${m.model_type}</span></td>
+                        <td class="py-3 px-4 text-gray-300">${score}</td>
+                        <td class="py-3 px-4 text-gray-500 text-xs">${new Date(m.created_at).toLocaleDateString()}</td>
+                    </tr>`;
+                });
+            }
+            document.getElementById('modelsList').innerHTML = html;
         }
 
         function logout() {

@@ -92,6 +92,84 @@ def get_user_dir(username: str) -> str:
     os.makedirs(user_models_dir, exist_ok=True)
     return user_models_dir
 
+def clean_and_validate_data(df: pd.DataFrame, target_column: str = None):
+    """
+    Comprehensive EDA and data cleaning function
+    
+    Returns:
+        - df_cleaned: Cleaned dataframe ready for ML
+        - eda_report: Dictionary with cleaning details
+    """
+    eda_report = {
+        "original_rows": len(df),
+        "original_columns": len(df.columns),
+        "missing_values": df.isnull().sum().to_dict(),
+        "actions_taken": []
+    }
+    
+    # Step 1: Get numeric columns
+    numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    
+    if not numeric_cols:
+        raise HTTPException(
+            status_code=400,
+            detail="No numeric columns found. Please ensure your dataset has numeric features."
+        )
+    
+    # Step 2: Drop rows where target column is NaN (if specified)
+    if target_column and target_column in df.columns:
+        initial_rows = len(df)
+        df = df.dropna(subset=[target_column])
+        rows_dropped = initial_rows - len(df)
+        if rows_dropped > 0:
+            eda_report["actions_taken"].append(f"Dropped {rows_dropped} rows with missing target value")
+    
+    # Step 3: Select only numeric columns
+    df_numeric = df[numeric_cols].copy()
+    eda_report["numeric_features"] = numeric_cols
+    
+    # Step 4: Handle missing values in features
+    # Strategy: Drop rows with ANY missing values (strict approach for clean training)
+    initial_rows = len(df_numeric)
+    df_numeric = df_numeric.dropna()
+    rows_dropped = initial_rows - len(df_numeric)
+    
+    if rows_dropped > 0:
+        eda_report["actions_taken"].append(
+            f"Dropped {rows_dropped} rows with missing values in features ({(rows_dropped/initial_rows*100):.1f}%)"
+        )
+    
+    # Step 5: Validate we have enough data
+    if len(df_numeric) < 10:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not enough data after cleaning. Have {len(df_numeric)} rows, need at least 10. "
+                   f"Your dataset may have too many missing values."
+        )
+    
+    # Step 6: Check for infinite values
+    if (df_numeric == float('inf')).any().any() or (df_numeric == float('-inf')).any().any():
+        df_numeric = df_numeric.replace([float('inf'), float('-inf')], float('nan')).dropna()
+        eda_report["actions_taken"].append("Removed rows with infinite values")
+    
+    # Step 7: Summary statistics
+    eda_report["cleaned_rows"] = len(df_numeric)
+    eda_report["rows_retained_percent"] = (len(df_numeric) / eda_report["original_rows"] * 100) if eda_report["original_rows"] > 0 else 0
+    eda_report["final_features"] = len(df_numeric.columns)
+    eda_report["data_quality"] = {
+        "missing_before": sum(1 for col in eda_report["missing_values"].values() if col > 0),
+        "missing_after": sum(1 for col in df_numeric.isnull().sum().to_dict().values() if col > 0),
+    }
+    
+    print(f"📊 EDA Report:")
+    print(f"   Original: {eda_report['original_rows']} rows, {eda_report['original_columns']} columns")
+    print(f"   Cleaned: {eda_report['cleaned_rows']} rows, {eda_report['final_features']} features")
+    print(f"   Retained: {eda_report['rows_retained_percent']:.1f}% of data")
+    for action in eda_report["actions_taken"]:
+        print(f"   ✓ {action}")
+    
+    return df_numeric, eda_report
+
 # Pydantic models
 class UserRegister(BaseModel):
     username: str
@@ -227,15 +305,27 @@ async def analyze_csv(file: UploadFile = File(...), credentials: HTTPAuthorizati
     df = pd.read_csv(file.file)
 
     target_column = df.columns[-1]
-    feature_columns = df.drop(columns=[target_column]).select_dtypes(
-        include=["int64", "float64"]
-    ).columns.tolist()
+    
+    # Clean and validate data
+    try:
+        df_cleaned, eda_report = clean_and_validate_data(df, target_column)
+        feature_columns = df_cleaned.columns.tolist()
+        if target_column in feature_columns:
+            feature_columns.remove(target_column)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Data validation failed: {str(e)}")
 
     return {
-        "rows": df.shape[0],
-        "columns": df.shape[1],
+        "rows": eda_report["original_rows"],
+        "cleaned_rows": eda_report["cleaned_rows"],
+        "columns": eda_report["original_columns"],
         "target_column": target_column,
-        "feature_columns": feature_columns
+        "feature_columns": feature_columns,
+        "data_quality": eda_report["data_quality"],
+        "cleaning_actions": eda_report["actions_taken"],
+        "rows_retained_percent": round(eda_report["rows_retained_percent"], 2)
     }
 
 @app.post("/detect-problem")
@@ -279,10 +369,17 @@ async def train_regression(
                    f"Use classification for categorical targets."
         )
     
-    X = df.drop(columns=[target_column])
-    y = df[target_column]
-
-    X = X.select_dtypes(include=['int64', 'float64'])
+    # Clean and validate data
+    try:
+        df_cleaned, eda_report = clean_and_validate_data(df, target_column)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Data cleaning failed: {str(e)}")
+    
+    # Separate features and target from cleaned data
+    X = df_cleaned.drop(columns=[target_column], errors='ignore')
+    y = df_cleaned[target_column]
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
@@ -390,12 +487,19 @@ async def train_classification(
                    f"Use regression for numeric targets."
         )
     
-    y = df[target_column].astype("category")
-
+    # Clean and validate data
+    try:
+        df_cleaned, eda_report = clean_and_validate_data(df, target_column)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Data cleaning failed: {str(e)}")
+    
+    # Separate features and target from cleaned data
+    y = df_cleaned[target_column].astype("category")
     label_map = dict(enumerate(y.cat.categories))
-
-    X = df.drop(columns=[target_column])
-    X = X.select_dtypes(include=['int64', 'float64'])
+    
+    X = df_cleaned.drop(columns=[target_column], errors='ignore')
     y_encoded = y.cat.codes
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -592,6 +696,35 @@ async def get_all_users(
                 "last_login": u.last_login.isoformat() if u.last_login else None
             } for u in users
         ]
+    }
+
+@app.get("/api/admin/all-models")
+async def get_all_models(
+    admin_user: str = Depends(verify_admin),
+    db: Session = Depends(get_db)
+):
+    """Get all models from all users with user information"""
+    
+    models = db.query(ModelMetadata).order_by(ModelMetadata.created_at.desc()).all()
+    
+    models_list = []
+    for m in models:
+        user = db.query(User).filter(User.id == m.user_id).first()
+        models_list.append({
+            "id": m.id,
+            "model_name": m.model_name,
+            "model_type": m.model_type,
+            "username": user.username if user else "Unknown",
+            "user_id": m.user_id,
+            "features": m.features,
+            "accuracy": m.accuracy,
+            "r2_score": m.r2_score,
+            "target_column": m.target_column,
+            "created_at": m.created_at.isoformat() if m.created_at else None
+        })
+    
+    return {
+        "models": models_list
     }
 
 @app.post("/api/admin/users/{user_id}/toggle-admin")
