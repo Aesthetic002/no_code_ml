@@ -13,3 +13,6 @@ psycopg2-binary
 boto3
 supabase
 python-dotenv
+langchain
+langchain-google-genai
+google-generativeai

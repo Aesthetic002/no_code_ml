@@ -28,6 +28,14 @@ load_dotenv()
 # Import cloud storage and database
 from app.cloud_storage import CloudStorageConfig, CloudStorageManager
 from app.database import get_db, User, ModelMetadata
+from app.langchain_utils import (
+    intelligent_eda_analysis,
+    generate_data_quality_report,
+    recommend_models,
+    chat_with_assistant,
+    generate_model_report,
+    explain_prediction
+)
 
 # Database setup
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -327,6 +335,43 @@ async def analyze_csv(file: UploadFile = File(...), credentials: HTTPAuthorizati
         "cleaning_actions": eda_report["actions_taken"],
         "rows_retained_percent": round(eda_report["rows_retained_percent"], 2)
     }
+
+@app.post("/ai-analyze")
+async def ai_analyze_csv(file: UploadFile = File(...), credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """
+    Feature #1: AI-powered intelligent data analysis
+    Uses Gemini to provide insights about the dataset
+    """
+    username = verify_token(credentials)
+    df = pd.read_csv(file.file)
+    target_column = df.columns[-1]
+    
+    try:
+        # Get AI insights
+        ai_results = intelligent_eda_analysis(df, target_column)
+        
+        if not ai_results.get("success"):
+            raise HTTPException(status_code=500, detail="AI analysis failed")
+        
+        analysis = ai_results["analysis"]
+        
+        # Get data quality report
+        quality_report = generate_data_quality_report(df)
+        
+        return {
+            "success": True,
+            "problem_type": analysis.get("problem_type", "Unknown"),
+            "data_quality_score": analysis.get("data_quality_score", "N/A"),
+            "key_insights": analysis.get("key_insights", []),
+            "warning_flags": analysis.get("warning_flags", []),
+            "recommended_features": analysis.get("recommended_features", []),
+            "next_steps": analysis.get("next_steps", []),
+            "quality_report": quality_report,
+            "target_column": target_column
+        }
+    except Exception as e:
+        print(f"❌ AI Analysis Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI analysis failed: {str(e)}")
 
 @app.post("/detect-problem")
 async def detect_problem(file: UploadFile = File(...)):

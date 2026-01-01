@@ -61,6 +61,9 @@
                     <button onclick="analyze()" class="w-full mt-4 bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 rounded-lg">
                         <i class="fas fa-wand-magic-wand mr-2"></i>Analyze
                     </button>
+                    <button onclick="aiAnalyze()" class="w-full mt-2 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white font-semibold py-2 rounded-lg">
+                        <i class="fas fa-brain mr-2"></i>AI Analyze
+                    </button>
                     <div id="analysisCard" class="hidden mt-4 bg-slate-900/50 rounded-lg p-4 border border-blue-500/30">
                         <div id="analysis" class="space-y-2 text-sm text-gray-300"></div>
                     </div>
@@ -373,6 +376,88 @@
             
             document.getElementById("predResultCard").classList.remove("hidden");
             document.getElementById("predLoading").classList.add("hidden");
+        }
+
+        async function aiAnalyze() {
+            const file = document.getElementById("csvFile").files[0];
+            if (!file) { alert("Please upload a CSV file"); return; }
+            
+            const formData = new FormData();
+            formData.append("file", file);
+            
+            document.getElementById("analysisCard").classList.remove("hidden");
+            document.getElementById("analysis").innerHTML = '<p class="text-blue-400 animate-pulse"><i class="fas fa-spinner fa-spin mr-2"></i>AI is analyzing your data...</p>';
+            
+            try {
+                const res = await fetch("http://127.0.0.1:9000/ai-analyze", {
+                    method: "POST",
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+                
+                const data = await res.json();
+                
+                if (res.status !== 200 || !data.success) {
+                    document.getElementById("analysis").innerHTML = `<p style="color: #f87171;">❌ Error: ${data.detail || 'Failed to analyze'}</p>`;
+                    return;
+                }
+                
+                let html = `
+                    <div class="space-y-4">
+                        <div class="bg-slate-800 rounded p-4 border-l-4 border-blue-500">
+                            <p class="text-blue-200 font-semibold text-lg">🔍 Problem Type</p>
+                            <p class="text-cyan-300 text-2xl font-bold">${data.problem_type}</p>
+                        </div>
+                        
+                        <div class="bg-slate-800 rounded p-4 border-l-4 border-green-500">
+                            <p class="text-green-200 font-semibold">📊 Data Quality Score</p>
+                            <div class="flex items-center gap-2 mt-2">
+                                <div class="w-48 bg-slate-700 rounded-full h-2">
+                                    <div class="bg-gradient-to-r from-green-500 to-blue-500 h-2 rounded-full" style="width: ${data.data_quality_score}%"></div>
+                                </div>
+                                <span class="text-cyan-300 font-bold">${data.data_quality_score}%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-slate-800 rounded p-4 border-l-4 border-yellow-500">
+                            <p class="text-yellow-200 font-semibold">💡 Key Insights</p>
+                            <ul class="text-gray-300 text-sm mt-2 list-disc list-inside space-y-1">
+                                ${data.key_insights.map(i => `<li>${i}</li>`).join('')}
+                            </ul>
+                        </div>
+                        
+                        ${data.warning_flags.length > 0 ? `
+                        <div class="bg-red-900/30 rounded p-4 border-l-4 border-red-500">
+                            <p class="text-red-200 font-semibold">⚠️ Warnings</p>
+                            <ul class="text-red-200 text-sm mt-2 list-disc list-inside space-y-1">
+                                ${data.warning_flags.map(w => `<li>${w}</li>`).join('')}
+                            </ul>
+                        </div>
+                        ` : ''}
+                        
+                        <div class="bg-slate-800 rounded p-4 border-l-4 border-purple-500">
+                            <p class="text-purple-200 font-semibold">✨ Recommended Features</p>
+                            <p class="text-gray-300 text-sm mt-2">${data.recommended_features.join(', ')}</p>
+                        </div>
+                        
+                        <div class="bg-slate-800 rounded p-4 border-l-4 border-indigo-500">
+                            <p class="text-indigo-200 font-semibold">📋 Quality Report</p>
+                            <p class="text-gray-300 text-sm mt-2 italic">${data.quality_report}</p>
+                        </div>
+                        
+                        <div class="bg-slate-800 rounded p-4 border-l-4 border-blue-500">
+                            <p class="text-blue-200 font-semibold">🚀 Next Steps</p>
+                            <ul class="text-gray-300 text-sm mt-2 list-decimal list-inside space-y-1">
+                                ${data.next_steps.map(s => `<li>${s}</li>`).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+                document.getElementById("analysis").innerHTML = html;
+            } catch (error) {
+                console.error('AI Analysis error:', error);
+                document.getElementById("analysis").innerHTML = `<p style="color: #f87171;">❌ Error: ${error.message}</p>`;
+            }
         }
     </script>
 </body>
